@@ -26,6 +26,7 @@ use tool_admin_presets\output\export_import;
 
 global $CFG;
 require_once($CFG->libdir . '/adminlib.php');
+
 /**
  * Admin tool presets main controller class.
  *
@@ -222,32 +223,6 @@ class base {
         echo $OUTPUT->header();
 
         echo $OUTPUT->heading($actionstr . ': ' . $modestr, 1);
-    }
-
-    public function log(): void {
-        // The only read action we store is list presets and preview.
-        $islist = ($this->action == 'base' && $this->mode == 'show');
-        $ispreview = ($this->action == 'load' && $this->mode == 'show');
-        if ($this->mode != 'show' || $islist || $ispreview) {
-            $action = $this->action;
-            if ($ispreview) {
-                $action = 'preview';
-            }
-
-            if ($this->mode != 'execute' && $this->mode != 'show') {
-                $action = $this->mode;
-            }
-
-            if (array_key_exists($action, self::$eventsactionsmap)) {
-                $eventnamespace = '\\tool_admin_presets\\event\\' . self::$eventsactionsmap[$action];
-                $eventdata = [
-                    'context' => context_system::instance(),
-                    'objectid' => $this->id
-                ];
-                $event = $eventnamespace::create($eventdata);
-                $event->trigger();
-            }
-        }
     }
 
     /**
@@ -466,6 +441,46 @@ class base {
     }
 
     /**
+     * Returns the settings class mapped to the defined $classname or null if it doesn't exist any associated class.
+     *
+     * @param string $classname The classname to get the mapped class.
+     * @return string|null
+     */
+    protected static function _get_settings_class(string $classname): ?string {
+        if (array_key_exists($classname, self::$settingclassesmap)) {
+            return '\\tool_admin_presets\\local\\setting\\' . self::$settingclassesmap[$classname];
+        }
+
+        return null;
+    }
+
+    public function log(): void {
+        // The only read action we store is list presets and preview.
+        $islist = ($this->action == 'base' && $this->mode == 'show');
+        $ispreview = ($this->action == 'load' && $this->mode == 'show');
+        if ($this->mode != 'show' || $islist || $ispreview) {
+            $action = $this->action;
+            if ($ispreview) {
+                $action = 'preview';
+            }
+
+            if ($this->mode != 'execute' && $this->mode != 'show') {
+                $action = $this->mode;
+            }
+
+            if (array_key_exists($action, self::$eventsactionsmap)) {
+                $eventnamespace = '\\tool_admin_presets\\event\\' . self::$eventsactionsmap[$action];
+                $eventdata = [
+                    'context' => context_system::instance(),
+                    'objectid' => $this->id
+                ];
+                $event = $eventnamespace::create($eventdata);
+                $event->trigger();
+            }
+        }
+    }
+
+    /**
      * Gets the javascript to populate the settings tree
      *
      * @param array $settings Array format $array['plugin']['settingname'] = settings_types child class
@@ -505,7 +520,7 @@ class base {
      * @return array Code to output
      */
     protected function _get_settings_elements(array $allsettings, $admintree = false, $jsparentnode = false,
-            array &$nodes = []): array {
+        array &$nodes = []): array {
 
         if (empty($this->adminroot)) {
             $this->adminroot = admin_get_root(false, true);
@@ -563,7 +578,7 @@ class base {
 
                         // String to add the setting to js tree.
                         $pagesettings[$settingid] = [$settingid, $settingid, $setting->get_text(),
-                                $setting->get_description(), $pagenode];
+                            $setting->get_description(), $pagenode];
                     }
 
                     // The page node only should be added if it have children.
@@ -601,19 +616,5 @@ class base {
         }
 
         return $settings;
-    }
-
-    /**
-     * Returns the settings class mapped to the defined $classname or null if it doesn't exist any associated class.
-     *
-     * @param string $classname The classname to get the mapped class.
-     * @return string|null
-     */
-    protected static function _get_settings_class(string $classname): ?string {
-        if (array_key_exists($classname, self::$settingclassesmap)) {
-            return '\\tool_admin_presets\\local\\setting\\' . self::$settingclassesmap[$classname];
-        }
-
-        return null;
     }
 }

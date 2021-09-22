@@ -53,125 +53,147 @@ class import extends base {
         $url = $CFG->wwwroot . '/admin/tool/admin_presets/index.php?action=import&mode=execute';
         $this->moodleform = new import_form($url);
 
-        if ($data = $this->moodleform->get_data()) {
+        if ($this->moodleform->get_data()) {
 
             $sitesettings = $this->_get_site_settings();
 
             // Getting the file.
             $xmlcontent = $this->moodleform->get_file_content('xmlfile');
             $xml = simplexml_load_string($xmlcontent);
+
             if (!$xml) {
                 $redirecturl = $CFG->wwwroot . '/admin/tool/admin_presets/index.php?action=import';
                 redirect($redirecturl, get_string('wrongfile', 'tool_admin_presets'));
             }
 
-            // Preset info.
-            $preset = new stdClass();
-            foreach ($this->rel as $dbname => $xmlname) {
-                $preset->$dbname = (String) $xml->$xmlname;
+            $this->import_filecontent($xml, true);
+        }
+    }
+
+    /**
+     * This function will import some files content into the db.
+     *
+     * @param $xml
+     * @param bool $redirect
+     * @return void
+     */
+
+    final public function import_filecontent($xml, $redirect): void {
+        global $DB, $USER, $CFG;
+
+        // Preset info.
+        $preset = new stdClass();
+        foreach ($this->rel as $dbname => $xmlname) {
+            $preset->$dbname = (string) $xml->$xmlname;
+        }
+        $preset->userid = $USER->id;
+        $preset->timeimported = time();
+
+        // Overwrite preset name.
+        if (isset ($this->moodleform) && $this->moodleform->get_data()->name != '') {
+            $preset->name = $this->moodleform->get_data()->name;
+        }
+
+        // Inserting preset.
+        if (!$preset->id = $DB->insert_record('tool_admin_presets', $preset)) {
+            throw new moodle_exception('errorinserting', 'tool_admin_presets');
+        }
+
+        // Store it here for logging and other future id-oriented stuff.
+        $this->id = $preset->id;
+
+        // Plugins settings.
+        $sitesettings = $this->_get_site_settings();
+        $xmladminsettings = $xml->ADMIN_SETTINGS[0];
+
+        foreach ($xmladminsettings as $plugin => $settings) {
+
+            $plugin = strtolower($plugin);
+
+            if (strstr($plugin, '__') != false) {
+                $plugin = str_replace('__', '/', $plugin);
             }
-            $preset->userid = $USER->id;
-            $preset->timeimported = time();
 
-            // Overwrite preset name.
-            if ($data->name != '') {
-                $preset->name = $data->name;
-            }
+            $pluginsettings = $settings->SETTINGS[0];
+            if ($pluginsettings) {
+                foreach ($pluginsettings->children() as $name => $setting) {
 
-            // Inserting preset.
-            if (!$preset->id = $DB->insert_record('tool_admin_presets', $preset)) {
-                throw new moodle_exception('errorinserting', 'tool_admin_presets');
-            }
+                    $name = strtolower($name);
 
-            // Store it here for logging and other future id-oriented stuff.
-            $this->id = $preset->id;
+                    // Default to ''.
+                    if ($setting->__toString() === false) {
+                        $value = '';
+                    } else {
+                        $value = $setting->__toString();
+                    }
 
-            // Plugins settings.
-            $xmladminsettings = $xml->ADMIN_SETTINGS[0];
-            foreach ($xmladminsettings as $plugin => $settings) {
+                    if (empty($sitesettings[$plugin][$name])) {
+                        debugging('Setting ' . $plugin . '/' . $name .
+                            ' not supported by this Moodle version', DEBUG_DEVELOPER);
+                        continue;
+                    }
 
-                $plugin = strtolower($plugin);
+                    // Cleaning the setting value.
+                    if (!$presetsetting = $this->_get_setting($sitesettings[$plugin][$name]->get_settingdata(),
+                        $value)) {
+                        debugging('Setting ' . $plugin . '/' . $name . ' not implemented', DEBUG_DEVELOPER);
+                        continue;
+                    }
 
-                if (strstr($plugin, '__') != false) {
-                    $plugin = str_replace('__', '/', $plugin);
-                }
+                    $settingsfound = true;
 
-                $pluginsettings = $settings->SETTINGS[0];
+                    // New item.
+                    $item = new stdClass();
+                    $item->adminpresetid = $preset->id;
+                    $item->plugin = $plugin;
+                    $item->name = $name;
+                    $item->value = $presetsetting->get_value();
 
-                if ($pluginsettings) {
-                    foreach ($pluginsettings->children() as $name => $setting) {
+                    // Inserting items.
+                    if (!$item->id = $DB->insert_record('tool_admin_presets_it', $item)) {
+                        throw new moodle_exception('errorinserting', 'tool_admin_presets');
+                    }
 
-                        $name = strtolower($name);
+                    // Adding settings attributes.
+                    if ($setting->attributes() && ($itemattributes = $presetsetting->get_attributes())) {
 
-                        // Default to ''.
-                        if ($setting->__toString() === false) {
-                            $value = '';
-                        } else {
-                            $value = $setting->__toString();
-                        }
+                        foreach ($setting->attributes() as $attrname => $attrvalue) {
 
-                        if (empty($sitesettings[$plugin][$name])) {
-                            debugging('Setting ' . $plugin . '/' . $name .
-                                    ' not supported by this Moodle version', DEBUG_DEVELOPER);
-                            continue;
-                        }
+                            $itemattributenames = array_flip($itemattributes);
 
-                        // Cleaning the setting value.
-                        if (!$presetsetting = $this->_get_setting($sitesettings[$plugin][$name]->get_settingdata(),
-                                $value)) {
-                            debugging('Setting ' . $plugin . '/' . $name . ' not implemented', DEBUG_DEVELOPER);
-                            continue;
-                        }
-
-                        $settingsfound = true;
-
-                        // New item.
-                        $item = new stdClass();
-                        $item->adminpresetid = $preset->id;
-                        $item->plugin = $plugin;
-                        $item->name = $name;
-                        $item->value = $presetsetting->get_value();
-
-                        // Inserting items.
-                        if (!$item->id = $DB->insert_record('tool_admin_presets_it', $item)) {
-                            throw new moodle_exception('errorinserting', 'tool_admin_presets');
-                        }
-
-                        // Adding settings attributes.
-                        if ($setting->attributes() && ($itemattributes = $presetsetting->get_attributes())) {
-
-                            foreach ($setting->attributes() as $attrname => $attrvalue) {
-
-                                $itemattributenames = array_flip($itemattributes);
-
-                                // Check the attribute existence.
-                                if (!isset($itemattributenames[$attrname])) {
-                                    debugging('The ' . $plugin . '/' . $name . ' attribute ' . $attrname .
-                                            ' is not supported by this Moodle version', DEBUG_DEVELOPER);
-                                    continue;
-                                }
-
-                                $attr = new stdClass();
-                                $attr->itemid = $item->id;
-                                $attr->name = $attrname;
-                                $attr->value = $attrvalue->__toString();
-                                $DB->insert_record('tool_admin_presets_it_a', $attr);
+                            // Check the attribute existence.
+                            if (!isset($itemattributenames[$attrname])) {
+                                debugging('The ' . $plugin . '/' . $name . ' attribute ' . $attrname .
+                                    ' is not supported by this Moodle version', DEBUG_DEVELOPER);
+                                continue;
                             }
+
+                            $attr = new stdClass();
+                            $attr->itemid = $item->id;
+                            $attr->name = $attrname;
+                            $attr->value = $attrvalue->__toString();
+                            $DB->insert_record('tool_admin_presets_it_a', $attr);
                         }
                     }
                 }
             }
+        }
 
-            // If there are no valid or selected settings we should delete the admin preset record.
-            if (empty($settingsfound)) {
-                $DB->delete_records('tool_admin_presets', ['id' => $preset->id]);
+        // If there are no valid or selected settings we should delete the admin preset record.
+        if (empty($settingsfound)) {
+            $DB->delete_records('tool_admin_presets', ['id' => $preset->id]);
+            if ($redirect) {
                 redirect($CFG->wwwroot . '/admin/tool/admin_presets/index.php?action=import',
-                        get_string('novalidsettings', 'tool_admin_presets'));
+                    get_string('novalidsettings', 'tool_admin_presets'));
+            } else {
+                debugging(get_string('novalidsettings', 'tool_admin_presets'), DEBUG_DEVELOPER);
             }
+        }
 
-            // Trigger the as it is usually triggered after execute finishes.
-            $this->log();
+        // Trigger the as it is usually triggered after execute finishes.
+        $this->log();
 
+        if ($redirect) {
             redirect($CFG->wwwroot . '/admin/tool/admin_presets/index.php?action=load&id=' . $preset->id);
         }
     }
