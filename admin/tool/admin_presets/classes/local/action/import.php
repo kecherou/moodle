@@ -55,7 +55,7 @@ class import extends base {
 
         if ($this->moodleform->get_data()) {
 
-            $sitesettings = $this->_get_site_settings();
+            $sitesettings = $this->manager->get_site_settings();
 
             // Getting the file.
             $xmlcontent = $this->moodleform->get_file_content('xmlfile');
@@ -103,7 +103,7 @@ class import extends base {
         $this->id = $preset->id;
 
         // Plugins settings.
-        $sitesettings = $this->_get_site_settings();
+        $sitesettings = $this->manager->get_site_settings();
         $xmladminsettings = $xml->ADMIN_SETTINGS[0];
 
         foreach ($xmladminsettings as $plugin => $settings) {
@@ -134,7 +134,7 @@ class import extends base {
                     }
 
                     // Cleaning the setting value.
-                    if (!$presetsetting = $this->_get_setting($sitesettings[$plugin][$name]->get_settingdata(),
+                    if (!$presetsetting = $this->manager->get_setting($sitesettings[$plugin][$name]->get_settingdata(),
                         $value)) {
                         debugging('Setting ' . $plugin . '/' . $name . ' not implemented', DEBUG_DEVELOPER);
                         continue;
